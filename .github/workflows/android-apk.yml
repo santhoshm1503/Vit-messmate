@@ -12,6 +12,7 @@ permissions:
 
 jobs:
   build:
+    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
@@ -20,18 +21,27 @@ jobs:
 
       - name: Find and extract project ZIP
         run: |
-          ZIP_FILE=$(find . -maxdepth 1 -iname '*.zip' -print -quit)
+          ZIP_FILE=$(find . -maxdepth 1 -type f -iname '*.zip' | head -n 1)
+
           if [ -z "$ZIP_FILE" ]; then
-            echo "Project ZIP not found"
+            echo "ERROR: Project ZIP not found"
             exit 1
           fi
-          mkdir extracted
+
+          echo "Extracting $ZIP_FILE"
+          mkdir -p extracted
           unzip -q "$ZIP_FILE" -d extracted
+
+          if [ ! -f extracted/messmate_src/package.json ]; then
+            echo "ERROR: Project package.json not found"
+            find extracted -name package.json
+            exit 1
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: '22'
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -42,15 +52,18 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: |
-            platform-tools
-            platforms;android-35
-            build-tools;35.0.0
-      - name: Install dependencies
-        working-directory: extracted/messmate_src
-        run: npm install
+          packages: platform-tools
 
-      - name: Build application
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Install project dependencies
+        working-directory: extracted/messmate_src
+        run: npm install --no-audit --no-fund
+
+      - name: Build React application
         working-directory: extracted/messmate_src
         run: npm run build
 
@@ -58,18 +71,21 @@ jobs:
         working-directory: extracted/messmate_src
         run: npx cap add android
 
-      - name: Sync Android project
+      - name: Sync Capacitor
         working-directory: extracted/messmate_src
         run: npx cap sync android
 
-      - name: Generate APK
+      - name: Build APK
         working-directory: extracted/messmate_src/android
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug
 
-      - name: Upload APK
+      - name: Upload Android APK
         uses: actions/upload-artifact@v4
         with:
           name: VIT-MessMate-APK
           path: extracted/messmate_src/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+          
